@@ -18,7 +18,6 @@ PAYS_DATA = {
     "Canada": {"code": "+1", "regex": r"^\d{10}$"}
 }
 
-# Liste étendue des 17 + 5 cultures (Total 22)
 CULTURES_PRO = sorted([
     "Maïs", "Manioc", "Cacao", "Café", "Tomate", "Riz", "Soja", "Palmier à huile", 
     "Hévéa", "Coton", "Banane-Plantein", "Ananas", "Avocat", "Mangue", "Oignon", 
@@ -86,7 +85,6 @@ def main():
                     else: st.error("Identifiants incorrects.")
 
     else:
-        # --- DASHBOARD STEVE ---
         u_email = st.session_state.user[0]
         st.sidebar.title("🚀 STEVE")
         st.sidebar.caption("Système Expert de Gestion Agricole")
@@ -147,45 +145,92 @@ def main():
 
             with t2:
                 st.subheader("📈 Rapport d'Analyse Professionnel")
-                # Récupération des données avec pandas pour éviter les erreurs d'analyse vide
                 df = pd.read_sql_query('SELECT * FROM recoltes WHERE user_email=?', conn, params=(u_email,))
-                
                 if not df.empty:
-                    # Chiffres clés
                     k1, k2, k3 = st.columns(3)
                     k1.metric("Production Totale", f"{df['quantite'].sum():,.1f} kg")
-                    # Calcul du chiffre d'affaires (quantité * prix)
                     ca = (df['quantite'] * df['prix_unitaire']).sum()
                     k2.metric("Valeur Estimée", f"{ca:,.0f} FCFA")
                     k3.metric("Nombre de Parcelles", df['parcelle'].nunique())
                     
-                    st.write("---")
                     col_g1, col_g2 = st.columns(2)
-                    
                     with col_g1:
-                        st.markdown("**Répartition de la Production (Pie Chart)**")
-                        fig = px.pie(df, values='quantite', names='culture', hole=0.5, 
-                                    color_discrete_sequence=px.colors.sequential.RdBu)
+                        fig = px.pie(df, values='quantite', names='culture', hole=0.5, color_discrete_sequence=px.colors.sequential.RdBu)
                         st.plotly_chart(fig, use_container_width=True)
-                    
                     with col_g2:
-                        st.markdown("**Tableau récapitulatif des données**")
                         st.dataframe(df[['date_saisie', 'culture', 'quantite', 'parcelle', 'statut_stock']], use_container_width=True)
                 else:
-                    st.warning("⚠️ Aucune donnée disponible. Veuillez effectuer une saisie dans l'onglet précédent.")
+                    st.warning("⚠️ Aucune donnée disponible.")
 
             with t3:
-                st.subheader("🛠️ Modification et Mise à jour")
-                c.execute('SELECT id, culture, parcelle FROM recoltes WHERE user_email=?', (u_email,))
+                st.subheader("🛠️ Gestion et Modification des données")
+                # Sélection de la donnée
+                c.execute('SELECT id, culture, parcelle, date_saisie FROM recoltes WHERE user_email=?', (u_email,))
                 rows = c.fetchall()
+                
                 if rows:
-                    opt = {f"ID:{r[0]} | {r[1]} ({r[2]})": r[0] for r in rows}
-                    sel_id = opt[st.selectbox("Sélectionner l'entrée à modifier", list(opt.keys()))]
-                    
-                    if st.button("🗑️ Supprimer cette entrée"):
-                        c.execute('DELETE FROM recoltes WHERE id=?', (sel_id,))
+                    opt = {f"ID:{r[0]} | {r[1]} - {r[2]} ({r[3]})": r[0] for r in rows}
+                    sel_id = st.selectbox("Choisir l'enregistrement à corriger", list(opt.keys()))
+                    id_to_edit = opt[sel_id]
+
+                    # Récupération des valeurs actuelles
+                    c.execute('SELECT * FROM recoltes WHERE id=?', (id_to_edit,))
+                    curr = c.fetchone()
+
+                    # FORMULAIRE DE MODIFICATION
+                    st.markdown("---")
+                    st.info(f"📍 Mode édition pour : {sel_id}")
+                    with st.form("edit_form_expert"):
+                        e_c1, e_c2 = st.columns(2)
+                        # On pré-sélectionne la culture actuelle si elle est dans la liste
+                        idx_cult = CULTURES_PRO.index(curr[3]) if curr[3] in CULTURES_PRO else CULTURES_PRO.index("AUTRE")
+                        new_cult_sel = e_c1.selectbox("Modifier Culture", CULTURES_PRO, index=idx_cult)
+                        new_cult_cust = e_c2.text_input("Nouvelle culture (si AUTRE)", value=curr[3] if new_cult_sel == "AUTRE" else "")
+                        
+                        final_edit_cult = new_cult_cust if new_cult_sel == "AUTRE" else new_cult_sel
+
+                        f1, f2, f3 = st.columns(3)
+                        new_quant = f1.number_input("Quantité (kg)", value=float(curr[4]), min_value=0.0)
+                        new_prix = f2.number_input("Prix unitaire (FCFA)", value=float(curr[5]), min_value=0.0)
+                        new_parcelle = f3.text_input("Parcelle", value=curr[6])
+
+                        f4, f5, f6 = st.columns(3)
+                        new_surf = f4.number_input("Superficie (Ha)", value=float(curr[7]), min_value=0.0)
+                        # Gestion de l'index pour le type de sol
+                        sols = ["Sableux", "Argileux", "Humifère", "Latéritique"]
+                        idx_sol = sols.index(curr[8]) if curr[8] in sols else 0
+                        new_sol = f5.selectbox("Type de sol", sols, index=idx_sol)
+                        new_humid = f6.slider("Humidité (%)", 0, 100, int(curr[13]))
+
+                        f7, f8, f9 = st.columns(3)
+                        new_int_n = f7.text_input("Intrants", value=curr[9])
+                        new_int_c = f8.number_input("Coût Intrants", value=float(curr[10]), min_value=0.0)
+                        new_main = f9.number_input("Coût Main d'œuvre", value=float(curr[11]), min_value=0.0)
+
+                        statuts = ["En séchage", "Stocké", "Vendu", "Transformé"]
+                        idx_stat = statuts.index(curr[12]) if curr[12] in statuts else 0
+                        new_statut = st.selectbox("Statut", statuts, index=idx_stat)
+                        new_notes = st.text_area("Notes", value=curr[14])
+
+                        col_btn1, col_btn2 = st.columns(2)
+                        if col_btn1.form_submit_button("✅ Enregistrer les modifications"):
+                            c.execute('''UPDATE recoltes SET 
+                                culture=?, quantite=?, prix_unitaire=?, parcelle=?, superficie=?, 
+                                type_sol=?, intrants_nom=?, cout_intrants=?, main_d_oeuvre=?, 
+                                statut_stock=?, humidite=?, notes=? WHERE id=?''',
+                                (final_edit_cult, float(new_quant), float(new_prix), new_parcelle, float(new_surf), 
+                                 new_sol, new_int_n, float(new_int_c), float(new_main), new_statut, float(new_humid), new_notes, id_to_edit))
+                            conn.commit()
+                            st.success("Données mises à jour avec succès !")
+                            st.rerun()
+
+                    if st.button("🗑️ Supprimer définitivement cette récolte"):
+                        c.execute('DELETE FROM recoltes WHERE id=?', (id_to_edit,))
                         conn.commit()
+                        st.success("Enregistrement supprimé.")
                         st.rerun()
+                else:
+                    st.info("Aucune donnée à gérer.")
 
 if __name__ == '__main__':
     main()
